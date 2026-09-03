@@ -163,6 +163,21 @@
       "text": "Change anything from the browser. No app update needed.",
       "color": "#9CA3AF",
       "fontSize": 12
+    },
+    {
+      "type": "spacer",
+      "id": "25",
+      "height": 16
+    },
+    {
+      "type": "button",
+      "id": "24",
+      "text": "Show Estimates",
+      "color": "#6200EA",
+      "textColor": "#FFFFFF",
+      "fontSize": 16,
+      "cornerRadius": 24,
+      "actionName": "navigate:estimates"
     }
   ]
 }
