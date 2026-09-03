@@ -546,17 +546,169 @@ function cleanEl(el){
     return o}
 
 async function copyJson(){const j=JSON.stringify(getConfig(),null,2);try{await navigator.clipboard.writeText(j)}catch{const t=document.createElement('textarea');t.value=j;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t)}showToast('JSON copied','content_copy')}
-async function deployConfig(){
-    const token=document.getElementById('ghToken').value.trim();
-    if(!token){showToast('Enter a GitHub token first','warning',true);document.getElementById('ghToken').focus();return}
-    localStorage.setItem('gh_token',token);setDeploy('deploying');
-    const fp=currentFile();
-    try{const existing=await fetch(`https://api.github.com/repos/${REPO}/${REPO_N}/contents/${fp}`,{headers:{Authorization:`Bearer ${token}`}});let sha=null;if(existing.ok)sha=(await existing.json()).sha;
-    const content=btoa(unescape(encodeURIComponent(JSON.stringify(getConfig(),null,2)+'\n')));
-    const body={message:'Update '+screens[activeScreen].label+' screen from web editor',content};if(sha)body.sha=sha;
-    const r=await fetch(`https://api.github.com/repos/${REPO}/${REPO_N}/contents/${fp}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(r.ok){setDeploy('deployed');showToast(screens[activeScreen].label+' deployed!','cloud_done');pollActionStatus(token)}else{const e=await r.json();setDeploy('err');showToast('Deploy failed: '+(e.message||r.status),'error',true)}}
-    catch(e){setDeploy('err');showToast('Deploy failed: '+e.message,'error',true)}}
+async function deployConfig() {
+    const token = document.getElementById('ghToken').value.trim();
+
+    if (!token) {
+        showToast('Enter a GitHub token first', 'warning', true);
+        document.getElementById('ghToken').focus();
+        return;
+    }
+
+    localStorage.setItem('gh_token', token);
+    setDeploy('deploying');
+
+    const fp = currentFile();
+
+    try {
+        // 1. Check existing file
+        const existingUrl =
+            `https://api.github.com/repos/${REPO}/${REPO_N}/contents/${fp}`;
+
+        console.log('GET:', existingUrl);
+
+        const existing = await fetch(existingUrl, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github+json'
+            }
+        });
+
+        console.log('GET status:', existing.status);
+        console.log('GET status text:', existing.statusText);
+
+        let sha = null;
+
+        if (existing.ok) {
+            const existingData = await existing.json();
+
+            console.log('Existing file:', existingData);
+
+            sha = existingData.sha;
+        } else {
+            const existingErrorText = await existing.text();
+
+            console.log('GET error:', existingErrorText);
+
+            // 404 is okay because it means the file doesn't exist yet.
+            if (existing.status !== 404) {
+                throw new Error(
+                    `GitHub GET failed (${existing.status} ${existing.statusText}): ${existingErrorText}`
+                );
+            }
+        }
+
+        // 2. Convert config to Base64
+        const config = JSON.stringify(getConfig(), null, 2) + '\n';
+
+        const content = btoa(
+            unescape(
+                encodeURIComponent(config)
+            )
+        );
+
+        // 3. Prepare GitHub request
+        const body = {
+            message: 'Update ' + screens[activeScreen].label + ' screen from web editor',
+            content: content
+        };
+
+        // If file exists, SHA is required for update
+        if (sha) {
+            body.sha = sha;
+        }
+
+        console.log('Deploying file:', fp);
+        console.log('Repository:', `${REPO}/${REPO_N}`);
+        console.log('Has SHA:', !!sha);
+        console.log('Commit message:', body.message);
+
+        // 4. IMPORTANT: PUT is required to actually deploy/update the file
+        const deployUrl =
+            `https://api.github.com/repos/${REPO}/${REPO_N}/contents/${fp}`;
+
+        const r = await fetch(deployUrl, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+
+        // 5. Get the COMPLETE response from GitHub
+        const responseText = await r.text();
+
+        console.log('================ GITHUB DEPLOY RESULT ================');
+        console.log('URL:', deployUrl);
+        console.log('Status:', r.status);
+        console.log('Status text:', r.statusText);
+        console.log('Response:', responseText);
+        console.log('========================================================');
+
+        if (r.ok) {
+            let responseData = null;
+
+            try {
+                responseData = JSON.parse(responseText);
+            } catch (e) {}
+
+            console.log('GitHub success response:', responseData);
+
+            setDeploy('deployed');
+
+            showToast(
+                screens[activeScreen].label + ' deployed!',
+                'cloud_done'
+            );
+
+            pollActionStatus(token);
+
+        } else {
+            // Try to extract GitHub's actual error message
+            let errorMessage = responseText;
+
+            try {
+                const errorData = JSON.parse(responseText);
+
+                console.error('GitHub error JSON:', errorData);
+
+                errorMessage =
+                    errorData.message ||
+                    errorData.documentation_url ||
+                    responseText;
+
+            } catch (e) {
+                console.error('GitHub returned non-JSON error:', responseText);
+            }
+
+            setDeploy('err');
+
+            showToast(
+                `Deploy failed (${r.status}): ${errorMessage}`,
+                'error',
+                true
+            );
+        }
+
+    } catch (e) {
+        console.error('================ DEPLOY EXCEPTION ================');
+        console.error(e);
+        console.error('Message:', e.message);
+        console.error('Stack:', e.stack);
+        console.error('===================================================');
+
+        setDeploy('err');
+
+        showToast(
+            'Deploy failed: ' + e.message,
+            'error',
+            true
+        );
+    }
+}
 
 let deployTimer=null;let deployStartTime=0;
 function setDeploy(s){
